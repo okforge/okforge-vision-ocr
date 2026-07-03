@@ -1,0 +1,4 @@
+pymupdf>=1.24
+pillow>=10
+openai>=1.30
+python-dotenv>=1.0
