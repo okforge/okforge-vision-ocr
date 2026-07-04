@@ -44,6 +44,22 @@ Two more hard-won details baked in:
 - Pages are processed strictly sequentially (one in-flight call), which
   single-slot llama.cpp servers need.
 
+## Translating the output (`translate_pages.py`)
+
+For non-English documents, keep OCR faithful and translate afterwards.
+`translate_pages.py` reads the `.pages.json`, makes one **text-only** call
+per page (skipping pages that are only photos), and writes a translated
+`.md` + `.pages.json` with every image reference kept byte-identical — put
+the output in the same directory as the source `.md` and both language
+versions share one `_images/` directory:
+
+```bash
+python translate_pages.py out.pages.json out_en.md --from Catalan --to English
+```
+
+First production run: a 116-page Catalan firearms catalog, 158 photos,
+zero lost image references.
+
 ## Configuration
 
 Environment (or a `.env` in the working directory):

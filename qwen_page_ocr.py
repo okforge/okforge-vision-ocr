@@ -68,6 +68,12 @@ MIN_CROP_STDDEV = 10.0    # reject near-uniform crops (granite's black-box mode)
 
 PHOTO_MARKER_RE = re.compile(r"^[ \t>*-]*<<<PHOTO\s*(\d+)>>>[ \t]*$", re.MULTILINE)
 JSON_FENCE_RE = re.compile(r"```json\s*(.*?)```", re.DOTALL)
+# The model sometimes echoes the prompt's own section labels ("TASK 1 —
+# TRANSCRIPTION", "TASK 2 — PHOTOS"), especially on near-empty pages;
+# they are answer scaffolding, not page text.
+SCAFFOLD_RE = re.compile(
+    r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?TASK\s*[12]\b[^\n]*$",
+    re.MULTILINE | re.IGNORECASE)
 
 PROMPT = """\
 You are transcribing one scanned page of a printed document.
@@ -178,6 +184,7 @@ def parse_response(text: str) -> tuple[str, list[dict]]:
                 transcript = text[:last.start()] + text[last.end():]
         except json.JSONDecodeError:
             pass
+    transcript = SCAFFOLD_RE.sub("", transcript)
     return transcript.strip(), boxes
 
 
