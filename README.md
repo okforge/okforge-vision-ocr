@@ -20,7 +20,16 @@ For each page it:
 python qwen_page_ocr.py scanned.pdf out.md              # whole document
 python qwen_page_ocr.py scanned.pdf out.md --pages 16   # one page
 python qwen_page_ocr.py scanned.pdf out.md --pages 5-12 # range
+python qwen_page_ocr.py scanned.pdf out.md --figures    # also extract drawings
 ```
+
+By default only real photographs are extracted. `--figures` widens the
+scope to every illustration — line drawings, engravings, diagrams, and
+pictorial vignettes/head-pieces — excluding only plain rules and borders,
+page numbers, and enlarged drop-cap initials. Use it for books whose
+figures are drawn rather than photographed; the strict default exists for
+documents where the non-photo graphics are decorative page furniture you
+don't want.
 
 Output: `out.md` (images referenced relatively from `out_images/`), plus
 `out.pages.json` — `[{"page": N, "content": str, "images": [{"path": str}]}]`

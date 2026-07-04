@@ -83,26 +83,37 @@ in natural reading order (follow columns if the layout is multi-column).
 Use heading levels that reflect the page's visual hierarchy. Transcribe
 every text block, including hard-to-read ones such as photographed signs
 or plaques — attempt them rather than skipping them. Do not describe the
-page; transcribe it. At the point in the reading order where a real
-photograph appears in the layout, insert a line containing exactly:
+page; transcribe it. At the point in the reading order where an image
+listed in TASK 2 appears in the layout, insert a line containing exactly:
 <<<PHOTO 1>>>
-(numbering photos 1, 2, 3... in reading order). If a photograph itself
+(numbering images 1, 2, 3... in reading order). If an image itself
 contains readable text (a sign, historical marker, or plaque), transcribe
-that text as a Markdown blockquote immediately after the photo's marker
+that text as a Markdown blockquote immediately after the image's marker
 line, then continue with the page's own text (captions, next section).
 
 TASK 2 — PHOTOS. After the transcription, output exactly one fenced JSON
-block listing every real photograph on the page (actual photos of places,
-people, objects, or signs). Do NOT include decorative graphics, borders,
-title banners, or maps:
+block listing @@SCOPE@@:
 ```json
 [{"id": 1, "label": "<short description>", "bbox": [x1, y1, x2, y2]}]
 ```
-where bbox is the photo's top-left and bottom-right corners, enclosing the
-photograph itself tightly — the whole photo, none of the text around it —
-and each id matches a <<<PHOTO n>>> marker. If there are no photographs, output an
+where bbox is the image's top-left and bottom-right corners, enclosing the
+image itself tightly — the whole image, none of the text around it — and
+each id matches a <<<PHOTO n>>> marker. If there are none, output an
 empty JSON array and no markers.
 """
+
+# TASK 2 scope, swapped by --figures. The photos-only default was tuned on
+# a brochure whose non-photos were decorative banners; books whose line
+# drawings and engravings ARE content want the wider scope.
+PHOTO_SCOPE = (
+    "every real photograph on the page (actual photos of places, people, "
+    "objects, or signs). Do NOT include decorative graphics, borders, "
+    "title banners, drawings, or maps")
+FIGURE_SCOPE = (
+    "every real photograph AND every illustration on the page: line "
+    "drawings, engravings, technical diagrams, and pictorial vignettes or "
+    "chapter head-pieces. Exclude only plain rules, plain borders, page "
+    "numbers, and enlarged initial capital letters")
 
 
 def load_client() -> OpenAI:
@@ -128,7 +139,8 @@ def get_page_image(doc: pymupdf.Document, page: pymupdf.Page) -> Image.Image:
     return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
 
-def call_model(client: OpenAI, img: Image.Image, page_num: int) -> str:
+def call_model(client: OpenAI, img: Image.Image, page_num: int,
+               prompt: str) -> str:
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=JPEG_QUALITY)
     b64 = base64.b64encode(buf.getvalue()).decode()
@@ -140,7 +152,7 @@ def call_model(client: OpenAI, img: Image.Image, page_num: int) -> str:
                 messages=[{
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": PROMPT},
+                        {"type": "text", "text": prompt},
                         {"type": "image_url", "image_url": {
                             "url": f"data:image/jpeg;base64,{b64}"}},
                     ],
@@ -211,7 +223,7 @@ def crop_ok(crop: Image.Image) -> bool:
 
 
 def process_page(client: OpenAI, doc: pymupdf.Document, page_num: int,
-                 images_dir: Path, images_dir_name: str) -> dict:
+                 images_dir: Path, images_dir_name: str, prompt: str) -> dict:
     """One page: image -> one LLM call -> transcript + verified photo crops.
 
     Returns {"page": N, "content": str, "images": [{"path": str}]} with
@@ -220,7 +232,7 @@ def process_page(client: OpenAI, doc: pymupdf.Document, page_num: int,
     img = get_page_image(doc, page)
     print(f"Page {page_num}: image {img.size[0]}x{img.size[1]}, calling model...",
           file=sys.stderr)
-    raw = call_model(client, img, page_num)
+    raw = call_model(client, img, page_num, prompt)
     transcript, boxes = parse_response(raw)
 
     # Save each box that survives calibration + sanity checks.
@@ -291,7 +303,13 @@ def main() -> None:
                              "default: whole document")
     parser.add_argument("--pages-json", type=Path, default=None,
                         help="Default: <out_md stem>.pages.json next to out_md")
+    parser.add_argument("--figures", action="store_true",
+                        help="Also extract figure illustrations (line "
+                             "drawings, engravings, diagrams), not just "
+                             "photographs")
     args = parser.parse_args()
+    prompt = PROMPT.replace(
+        "@@SCOPE@@", FIGURE_SCOPE if args.figures else PHOTO_SCOPE)
 
     out_pages_json = args.pages_json or args.out_md.with_suffix(".pages.json")
     images_dir_name = f"{args.out_md.stem}_images"
@@ -305,7 +323,8 @@ def main() -> None:
     pages: list[dict] = []
     n_images = 0
     for page_num in page_nums:
-        result = process_page(client, doc, page_num, images_dir, images_dir_name)
+        result = process_page(client, doc, page_num, images_dir,
+                              images_dir_name, prompt)
         pages.append(result)
         n_images += len(result["images"])
     doc.close()
