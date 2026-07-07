@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Direct-Qwen pre-conversion: scanned PDF -> Markdown + images + page JSON.
 
-Second pre-conversion option alongside docling_convert.py, for documents
+The pre-conversion tool, for documents
 where real OCR *and* real image extraction both matter (e.g.
 SeminoleWarHeritageTrail's pure-scan brochure). Bypasses docling-serve
 entirely — its queue-hang bug, qwen-vl's pictures-never-detected gap, and
@@ -18,7 +18,7 @@ earlier testing was just height/1000. So: pixel = coord * dim / 1000. As a
 fallback, a box with any coordinate > 1000 is treated as raw pixels of the
 sent image.
 
-Output contract matches docling_convert.py:
+Output contract:
     <out_md>            assembled markdown, pages in order, with relative
                         ![](<stem>_images/pN_imgM.jpg) refs inline — the
                         same relative-link convention openkb's .md path
@@ -29,7 +29,7 @@ Output contract matches docling_convert.py:
                         accepts.
     <out_md stem>_images/   cropped photos, JPEG.
 
-Like docling_convert.py, this produces the artifacts, nothing else — it
+This produces the artifacts, nothing else — it
 does not run `openkb add`.
 
 Usage:
@@ -38,7 +38,7 @@ Usage:
     qwen_page_ocr.py raw/doc.pdf raw/doc.md --pages 5-12 # range
 
 Reads OPENAI_API_BASE and LLM_API_KEY from .env in the current directory
-or ~/.config/openkb/.env (same as ocr_pdf.py); defaults to sriaitoo:8080.
+or ~/.config/openkb/.env; defaults to sriaitoo:8080.
 """
 from __future__ import annotations
 
@@ -61,6 +61,7 @@ MODEL = os.environ.get("QWEN_OCR_MODEL", "Qwen3.6-27B-MTP")
 RENDER_DPI = 300          # for pages that aren't a single full-page scan
 JPEG_QUALITY = 90         # both what's sent to the model and what's saved
 MAX_TOKENS = 4096         # transcript + JSON; a dense brochure page fits
+MAX_TOKENS_THINK = 16384   # --think: reasoning shares the budget, so grow it
 MAX_ATTEMPTS = 3          # same 3-retry pattern as indexer.index_long_document
 RETRY_WAIT_S = 10
 MIN_CROP_PX = 40          # reject slivers
@@ -102,6 +103,31 @@ each id matches a <<<PHOTO n>>> marker. If there are none, output an
 empty JSON array and no markers.
 """
 
+# Appended by --tables (pair with --think): information-first table
+# handling. The wiki's consumers are LLMs reading markdown — explicit
+# statements of meaning beat a mimicked grid, and grid mimicry is what
+# breaks on multi-level headers / row groups / spanning cells anyway.
+TABLE_ADDENDUM = """
+TABLES. If the page contains a table, your goal is to convey the
+INFORMATION the table holds — not to reproduce its visual layout.
+First reason through what the table actually says: what is being
+looked up, by which criteria, and what each cell means — resolving
+multi-level headers, row-group labels, spanning cells, and footnote
+markers into their plain meaning. Then write that information in the
+clearest Markdown form:
+- a simple table only if the data is truly flat (one header row,
+  same columns on every row);
+- otherwise restructure: split it into one small table per group, or
+  state each record as a bulleted entry that names every attribute
+  explicitly, e.g.
+  "- Type II, 55 ft / 5 stories — max floor area 15,000 sq. ft.
+  fronting 1 street; 18,000 for 2 streets; 20,000 for 3+ streets;
+  increase 100% with complete sprinkler protection."
+Preserve every number, unit, and footnote marker exactly as printed.
+Make implicit relationships explicit instead of mirroring the grid.
+Give the table's title as a heading and its footnotes as plain text.
+"""
+
 # TASK 2 scope, swapped by --figures. The photos-only default was tuned on
 # a brochure whose non-photos were decorative banners; books whose line
 # drawings and engravings ARE content want the wider scope.
@@ -139,8 +165,11 @@ def get_page_image(doc: pymupdf.Document, page: pymupdf.Page) -> Image.Image:
     return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
 
+_THINK_RE = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL)
+
+
 def call_model(client: OpenAI, img: Image.Image, page_num: int,
-               prompt: str) -> str:
+               prompt: str, think: bool = False) -> str:
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=JPEG_QUALITY)
     b64 = base64.b64encode(buf.getvalue()).decode()
@@ -157,13 +186,18 @@ def call_model(client: OpenAI, img: Image.Image, page_num: int,
                             "url": f"data:image/jpeg;base64,{b64}"}},
                     ],
                 }],
-                max_tokens=MAX_TOKENS,
+                max_tokens=MAX_TOKENS_THINK if think else MAX_TOKENS,
                 temperature=0.2,  # damp run-to-run bbox variance
-                # Without this the model's reasoning burns the whole token
-                # budget and content comes back empty.
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                # Thinking is off by default — reasoning burns the whole
+                # token budget and content comes back empty. --think turns
+                # it on (with a bigger budget) for pages that need
+                # structural reasoning, e.g. complex tables.
+                extra_body={"chat_template_kwargs": {"enable_thinking": think}},
             )
             text = resp.choices[0].message.content or ""
+            # Some server configs inline the reasoning; never let it
+            # reach the transcription.
+            text = _THINK_RE.sub("", text)
             if text.strip():
                 return text
             raise RuntimeError("empty completion content")
@@ -223,7 +257,8 @@ def crop_ok(crop: Image.Image) -> bool:
 
 
 def process_page(client: OpenAI, doc: pymupdf.Document, page_num: int,
-                 images_dir: Path, images_dir_name: str, prompt: str) -> dict:
+                 images_dir: Path, images_dir_name: str, prompt: str,
+                 think: bool = False) -> dict:
     """One page: image -> one LLM call -> transcript + verified photo crops.
 
     Returns {"page": N, "content": str, "images": [{"path": str}]} with
@@ -232,7 +267,7 @@ def process_page(client: OpenAI, doc: pymupdf.Document, page_num: int,
     img = get_page_image(doc, page)
     print(f"Page {page_num}: image {img.size[0]}x{img.size[1]}, calling model...",
           file=sys.stderr)
-    raw = call_model(client, img, page_num, prompt)
+    raw = call_model(client, img, page_num, prompt, think=think)
     transcript, boxes = parse_response(raw)
 
     # Save each box that survives calibration + sanity checks.
@@ -307,9 +342,22 @@ def main() -> None:
                         help="Also extract figure illustrations (line "
                              "drawings, engravings, diagrams), not just "
                              "photographs")
+    parser.add_argument("--think", action="store_true",
+                        help="Enable model reasoning (slower, bigger token "
+                             "budget) — for pages needing structural "
+                             "analysis, e.g. complex tables")
+    parser.add_argument("--tables", action="store_true",
+                        help="Append table-reconstruction instructions to "
+                             "the prompt (pair with --think)")
+    parser.add_argument("--prompt-extra", default=None, metavar="TEXT",
+                        help="Free-text instructions appended to the prompt")
     args = parser.parse_args()
     prompt = PROMPT.replace(
         "@@SCOPE@@", FIGURE_SCOPE if args.figures else PHOTO_SCOPE)
+    if args.tables:
+        prompt += TABLE_ADDENDUM
+    if args.prompt_extra:
+        prompt += "\n" + args.prompt_extra.strip() + "\n"
 
     out_pages_json = args.pages_json or args.out_md.with_suffix(".pages.json")
     images_dir_name = f"{args.out_md.stem}_images"
@@ -324,7 +372,7 @@ def main() -> None:
     n_images = 0
     for page_num in page_nums:
         result = process_page(client, doc, page_num, images_dir,
-                              images_dir_name, prompt)
+                              images_dir_name, prompt, think=args.think)
         pages.append(result)
         n_images += len(result["images"])
     doc.close()

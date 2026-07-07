@@ -35,6 +35,27 @@ Output: `out.md` (images referenced relatively from `out_images/`), plus
 `out.pages.json` — `[{"page": N, "content": str, "images": [{"path": str}]}]`
 — so downstream tooling can attach real page numbers to every chunk.
 
+## Difficult tables (`--think --tables`)
+
+Complex tables — multi-level headers, row-group labels spanning several
+rows, cells that span columns — get mangled by fast single-pass
+transcription. `--think` turns the model's reasoning on for the page
+(with a 4x token budget; any inline `<think>` block is stripped from
+the output), and `--tables` appends an information-first prompt: convey
+what the table MEANS — what is looked up, by which criteria, what each
+cell says — as a flat table or explicit bulleted records, rather than
+mimicking the printed grid. Numbers, units, and footnote markers are
+preserved exactly.
+
+```bash
+python qwen_page_ocr.py scanned.pdf out.md --pages 68 --think --tables
+```
+
+Reasoning is deliberately OFF otherwise: without `enable_thinking:
+false` per request, Qwen3-family models burn the whole token budget on
+reasoning and return empty content. `--prompt-extra "…"` appends
+one-off instructions for a stubborn page.
+
 ## The coordinate calibration trick
 
 Qwen-VL grounding responses through llama.cpp return bounding boxes

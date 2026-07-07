@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Translate a qwen_page_ocr.py / docling_convert.py output into another
+"""Translate a qwen_page_ocr.py output into another
 language, page by page, preserving the .md + .pages.json contract.
 
 Reads <in>.pages.json (the per-page source of truth), makes one text-only
