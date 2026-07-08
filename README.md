@@ -106,7 +106,8 @@ python-dotenv).
 ## Provenance
 
 Built 2026-07-03 to ingest a 60-page pure-scan brochure (zero text layer)
-into an [OpenKB](https://github.com/VectifyAI/OpenKB) knowledge base after
-several docling-serve pipelines failed on it in different ways. The
-canonical working copy lives in that machine's OpenKB tooling repo; this
+into an [okforge](https://github.com/designcomputer/okforge) knowledge base
+(a hard fork of [VectifyAI/OpenKB](https://github.com/VectifyAI/OpenKB))
+after several docling-serve pipelines failed on it in different ways. The
+canonical working copy lives in that machine's okforge-tooling repo; this
 repo is the standalone publication of the same script.
