@@ -20,11 +20,21 @@ For each page it:
    variance), saves the rest as JPEGs, and splices `![]()` references into
    the Markdown at each photo's position in the reading order.
 
+## Install
+
 ```bash
-python okforge_vision_ocr.py scanned.pdf out.md              # whole document
-python okforge_vision_ocr.py scanned.pdf out.md --pages 16   # one page
-python okforge_vision_ocr.py scanned.pdf out.md --pages 5-12 # range
-python okforge_vision_ocr.py scanned.pdf out.md --figures    # also extract drawings
+pip install okforge-vision-ocr
+```
+
+This installs two commands, `okforge-vision-ocr` and
+`okforge-translate-pages`. Running from a source checkout without
+installing works too — see "Configuration" below.
+
+```bash
+okforge-vision-ocr scanned.pdf out.md              # whole document
+okforge-vision-ocr scanned.pdf out.md --pages 16   # one page
+okforge-vision-ocr scanned.pdf out.md --pages 5-12 # range
+okforge-vision-ocr scanned.pdf out.md --figures    # also extract drawings
 ```
 
 By default only real photographs are extracted. `--figures` widens the
@@ -55,7 +65,7 @@ mimicking the printed grid. Numbers, units, and footnote markers are
 preserved exactly.
 
 ```bash
-python okforge_vision_ocr.py scanned.pdf out.md --pages 68 --think --tables
+okforge-vision-ocr scanned.pdf out.md --pages 68 --think --tables
 ```
 
 Reasoning is deliberately OFF otherwise: without `enable_thinking:
@@ -89,17 +99,17 @@ builds — otherwise reasoning consumes the whole token budget and
 Model-agnostic detail: pages are processed strictly sequentially (one
 in-flight call), which single-slot LLM servers of any kind need.
 
-## Translating the output (`translate_pages.py`)
+## Translating the output (`okforge-translate-pages`)
 
 For non-English documents, keep OCR faithful and translate afterwards.
-`translate_pages.py` reads the `.pages.json`, makes one **text-only** call
-per page (skipping pages that are only photos), and writes a translated
-`.md` + `.pages.json` with every image reference kept byte-identical — put
-the output in the same directory as the source `.md` and both language
-versions share one `_images/` directory:
+`okforge-translate-pages` reads the `.pages.json`, makes one **text-only**
+call per page (skipping pages that are only photos), and writes a
+translated `.md` + `.pages.json` with every image reference kept
+byte-identical — put the output in the same directory as the source `.md`
+and both language versions share one `_images/` directory:
 
 ```bash
-python translate_pages.py out.pages.json out_en.md --from Catalan --to English
+okforge-translate-pages out.pages.json out_en.md --from Catalan --to English
 ```
 
 First production run: a 116-page Catalan firearms catalog, 158 photos,
@@ -115,8 +125,10 @@ LLM_API_KEY=no-key
 OKFORGE_VISION_MODEL=Qwen3.6-27B-MTP   # optional override — any vision-capable model your endpoint serves
 ```
 
-Install: `pip install -r requirements.txt` (pymupdf, pillow, openai,
-python-dotenv).
+From a source checkout, without installing the package: `pip install -r
+requirements.txt` (pymupdf, pillow, openai, python-dotenv), then run
+`python okforge_vision_ocr.py ...` / `python translate_pages.py ...`
+directly.
 
 ## Provenance
 

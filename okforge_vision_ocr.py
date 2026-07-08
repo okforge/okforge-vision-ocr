@@ -38,6 +38,7 @@ Usage:
 Reads OPENAI_API_BASE and LLM_API_KEY from .env in the current directory
 or ~/.config/openkb/.env; defaults to localhost:8080.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -56,14 +57,14 @@ from openai import OpenAI
 from PIL import Image, ImageStat
 
 MODEL = os.environ.get("OKFORGE_VISION_MODEL", "Qwen3.6-27B-MTP")
-RENDER_DPI = 300          # for pages that aren't a single full-page scan
-JPEG_QUALITY = 90         # both what's sent to the model and what's saved
-MAX_TOKENS = 4096         # transcript + JSON; a dense brochure page fits
-MAX_TOKENS_THINK = 16384   # --think: reasoning shares the budget, so grow it
-MAX_ATTEMPTS = 3          # retries with linear backoff on transient failures
+RENDER_DPI = 300  # for pages that aren't a single full-page scan
+JPEG_QUALITY = 90  # both what's sent to the model and what's saved
+MAX_TOKENS = 4096  # transcript + JSON; a dense brochure page fits
+MAX_TOKENS_THINK = 16384  # --think: reasoning shares the budget, so grow it
+MAX_ATTEMPTS = 3  # retries with linear backoff on transient failures
 RETRY_WAIT_S = 10
-MIN_CROP_PX = 40          # reject slivers
-MIN_CROP_STDDEV = 10.0    # reject near-uniform crops (blank/solid-color crops)
+MIN_CROP_PX = 40  # reject slivers
+MIN_CROP_STDDEV = 10.0  # reject near-uniform crops (blank/solid-color crops)
 
 PHOTO_MARKER_RE = re.compile(r"^[ \t>*-]*<<<PHOTO\s*(\d+)>>>[ \t]*$", re.MULTILINE)
 JSON_FENCE_RE = re.compile(r"```json\s*(.*?)```", re.DOTALL)
@@ -72,7 +73,8 @@ JSON_FENCE_RE = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 # they are answer scaffolding, not page text.
 SCAFFOLD_RE = re.compile(
     r"^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?TASK\s*[12]\b[^\n]*$",
-    re.MULTILINE | re.IGNORECASE)
+    re.MULTILINE | re.IGNORECASE,
+)
 
 PROMPT = """\
 You are transcribing one scanned page of a printed document.
@@ -132,12 +134,14 @@ Give the table's title as a heading and its footnotes as plain text.
 PHOTO_SCOPE = (
     "every real photograph on the page (actual photos of places, people, "
     "objects, or signs). Do NOT include decorative graphics, borders, "
-    "title banners, drawings, or maps")
+    "title banners, drawings, or maps"
+)
 FIGURE_SCOPE = (
     "every real photograph AND every illustration on the page: line "
     "drawings, engravings, technical diagrams, and pictorial vignettes or "
     "chapter head-pieces. Exclude only plain rules, plain borders, page "
-    "numbers, and enlarged initial capital letters")
+    "numbers, and enlarged initial capital letters"
+)
 
 
 def load_client() -> OpenAI:
@@ -166,8 +170,9 @@ def get_page_image(doc: pymupdf.Document, page: pymupdf.Page) -> Image.Image:
 _THINK_RE = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL)
 
 
-def call_model(client: OpenAI, img: Image.Image, page_num: int,
-               prompt: str, think: bool = False) -> str:
+def call_model(
+    client: OpenAI, img: Image.Image, page_num: int, prompt: str, think: bool = False
+) -> str:
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=JPEG_QUALITY)
     b64 = base64.b64encode(buf.getvalue()).decode()
@@ -176,14 +181,18 @@ def call_model(client: OpenAI, img: Image.Image, page_num: int,
         try:
             resp = client.chat.completions.create(
                 model=MODEL,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {
-                            "url": f"data:image/jpeg;base64,{b64}"}},
-                    ],
-                }],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                            },
+                        ],
+                    }
+                ],
                 max_tokens=MAX_TOKENS_THINK if think else MAX_TOKENS,
                 temperature=0.2,  # damp run-to-run bbox variance
                 # Thinking is off by default — reasoning burns the whole
@@ -201,8 +210,10 @@ def call_model(client: OpenAI, img: Image.Image, page_num: int,
             raise RuntimeError("empty completion content")
         except Exception as exc:  # noqa: BLE001 — retry any request failure
             last_exc = exc
-            print(f"  page {page_num} attempt {attempt}/{MAX_ATTEMPTS} "
-                  f"failed: {exc}", file=sys.stderr)
+            print(
+                f"  page {page_num} attempt {attempt}/{MAX_ATTEMPTS} failed: {exc}",
+                file=sys.stderr,
+            )
             if attempt < MAX_ATTEMPTS:
                 time.sleep(RETRY_WAIT_S * attempt)
     raise RuntimeError(
@@ -225,7 +236,7 @@ def parse_response(text: str) -> tuple[str, list[dict]]:
             parsed = json.loads(last.group(1))
             if isinstance(parsed, list):
                 boxes = [b for b in parsed if isinstance(b, dict)]
-                transcript = text[:last.start()] + text[last.end():]
+                transcript = text[: last.start()] + text[last.end() :]
         except json.JSONDecodeError:
             pass
     transcript = SCAFFOLD_RE.sub("", transcript)
@@ -241,8 +252,7 @@ def box_to_pixels(box: list, size: tuple[int, int]) -> tuple[int, int, int, int]
     if max(x1, y1, x2, y2) <= 1000:  # calibrated: 0-1000 normalized
         x1, x2 = x1 * W / 1000, x2 * W / 1000
         y1, y2 = y1 * H / 1000, y2 * H / 1000
-    px = (int(max(0, x1)), int(max(0, y1)),
-          int(min(W, x2)), int(min(H, y2)))
+    px = (int(max(0, x1)), int(max(0, y1)), int(min(W, x2)), int(min(H, y2)))
     if px[2] - px[0] < MIN_CROP_PX or px[3] - px[1] < MIN_CROP_PX:
         return None
     return px
@@ -254,22 +264,30 @@ def crop_ok(crop: Image.Image) -> bool:
     return stat.stddev[0] >= MIN_CROP_STDDEV
 
 
-def process_page(client: OpenAI, doc: pymupdf.Document, page_num: int,
-                 images_dir: Path, images_dir_name: str, prompt: str,
-                 think: bool = False) -> dict:
+def process_page(
+    client: OpenAI,
+    doc: pymupdf.Document,
+    page_num: int,
+    images_dir: Path,
+    images_dir_name: str,
+    prompt: str,
+    think: bool = False,
+) -> dict:
     """One page: image -> one LLM call -> transcript + verified photo crops.
 
     Returns {"page": N, "content": str, "images": [{"path": str}]} with
     image paths relative to the output .md's directory."""
     page = doc[page_num - 1]
     img = get_page_image(doc, page)
-    print(f"Page {page_num}: image {img.size[0]}x{img.size[1]}, calling model...",
-          file=sys.stderr)
+    print(
+        f"Page {page_num}: image {img.size[0]}x{img.size[1]}, calling model...",
+        file=sys.stderr,
+    )
     raw = call_model(client, img, page_num, prompt, think=think)
     transcript, boxes = parse_response(raw)
 
     # Save each box that survives calibration + sanity checks.
-    saved: dict[int, str] = {}   # photo id -> md-relative path
+    saved: dict[int, str] = {}  # photo id -> md-relative path
     page_images: list[dict] = []
     img_counter = 0
     for i, b in enumerate(boxes, start=1):
@@ -280,13 +298,19 @@ def process_page(client: OpenAI, doc: pymupdf.Document, page_num: int,
             pid = i
         px = box_to_pixels(b.get("bbox") or b.get("bbox_2d") or [], img.size)
         if px is None:
-            print(f"  page {page_num} photo {pid}: unusable bbox "
-                  f"{b.get('bbox') or b.get('bbox_2d')}; skipped", file=sys.stderr)
+            print(
+                f"  page {page_num} photo {pid}: unusable bbox "
+                f"{b.get('bbox') or b.get('bbox_2d')}; skipped",
+                file=sys.stderr,
+            )
             continue
         crop = img.crop(px)
         if not crop_ok(crop):
-            print(f"  page {page_num} photo {pid}: crop failed sanity check "
-                  f"(near-uniform); skipped", file=sys.stderr)
+            print(
+                f"  page {page_num} photo {pid}: crop failed sanity check "
+                f"(near-uniform); skipped",
+                file=sys.stderr,
+            )
             continue
         img_counter += 1
         filename = f"p{page_num}_img{img_counter}.jpg"
@@ -296,8 +320,11 @@ def process_page(client: OpenAI, doc: pymupdf.Document, page_num: int,
         saved[pid] = rel
         page_images.append({"path": rel})
         label = str(b.get("label", "")).strip()
-        print(f"  page {page_num} photo {pid}: {crop.size[0]}x{crop.size[1]} "
-              f"-> {rel} ({label[:60]})", file=sys.stderr)
+        print(
+            f"  page {page_num} photo {pid}: {crop.size[0]}x{crop.size[1]} "
+            f"-> {rel} ({label[:60]})",
+            file=sys.stderr,
+        )
 
     # Replace each <<<PHOTO n>>> marker with its image ref (or drop it if the
     # photo didn't survive); append refs whose marker never appeared.
@@ -322,36 +349,56 @@ def parse_pages_arg(spec: str | None, page_count: int) -> list[int]:
     first, last = int(m.group(1)), int(m.group(2) or m.group(1))
     if not (1 <= first <= last <= page_count):
         raise SystemExit(
-            f"--pages {spec} out of range for a {page_count}-page document")
+            f"--pages {spec} out of range for a {page_count}-page document"
+        )
     return list(range(first, last + 1))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("pdf_path", type=Path)
     parser.add_argument("out_md", type=Path)
-    parser.add_argument("--pages", default=None,
-                        help="Page N or range N-M (1-based, inclusive); "
-                             "default: whole document")
-    parser.add_argument("--pages-json", type=Path, default=None,
-                        help="Default: <out_md stem>.pages.json next to out_md")
-    parser.add_argument("--figures", action="store_true",
-                        help="Also extract figure illustrations (line "
-                             "drawings, engravings, diagrams), not just "
-                             "photographs")
-    parser.add_argument("--think", action="store_true",
-                        help="Enable model reasoning (slower, bigger token "
-                             "budget) — for pages needing structural "
-                             "analysis, e.g. complex tables")
-    parser.add_argument("--tables", action="store_true",
-                        help="Append table-reconstruction instructions to "
-                             "the prompt (pair with --think)")
-    parser.add_argument("--prompt-extra", default=None, metavar="TEXT",
-                        help="Free-text instructions appended to the prompt")
+    parser.add_argument(
+        "--pages",
+        default=None,
+        help="Page N or range N-M (1-based, inclusive); default: whole document",
+    )
+    parser.add_argument(
+        "--pages-json",
+        type=Path,
+        default=None,
+        help="Default: <out_md stem>.pages.json next to out_md",
+    )
+    parser.add_argument(
+        "--figures",
+        action="store_true",
+        help="Also extract figure illustrations (line "
+        "drawings, engravings, diagrams), not just "
+        "photographs",
+    )
+    parser.add_argument(
+        "--think",
+        action="store_true",
+        help="Enable model reasoning (slower, bigger token "
+        "budget) — for pages needing structural "
+        "analysis, e.g. complex tables",
+    )
+    parser.add_argument(
+        "--tables",
+        action="store_true",
+        help="Append table-reconstruction instructions to "
+        "the prompt (pair with --think)",
+    )
+    parser.add_argument(
+        "--prompt-extra",
+        default=None,
+        metavar="TEXT",
+        help="Free-text instructions appended to the prompt",
+    )
     args = parser.parse_args()
-    prompt = PROMPT.replace(
-        "@@SCOPE@@", FIGURE_SCOPE if args.figures else PHOTO_SCOPE)
+    prompt = PROMPT.replace("@@SCOPE@@", FIGURE_SCOPE if args.figures else PHOTO_SCOPE)
     if args.tables:
         prompt += TABLE_ADDENDUM
     if args.prompt_extra:
@@ -369,8 +416,9 @@ def main() -> None:
     pages: list[dict] = []
     n_images = 0
     for page_num in page_nums:
-        result = process_page(client, doc, page_num, images_dir,
-                              images_dir_name, prompt, think=args.think)
+        result = process_page(
+            client, doc, page_num, images_dir, images_dir_name, prompt, think=args.think
+        )
         pages.append(result)
         n_images += len(result["images"])
     doc.close()
@@ -378,13 +426,17 @@ def main() -> None:
     args.out_md.parent.mkdir(parents=True, exist_ok=True)
     args.out_md.write_text(
         "\n\n".join(p["content"] for p in pages if p["content"]) + "\n",
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     out_pages_json.write_text(
-        json.dumps(pages, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"OK: {len(pages)} page(s) -> {args.out_md}\n"
-          f"    page array -> {out_pages_json}\n"
-          f"    {n_images} photo crop(s) -> {images_dir}/",
-          file=sys.stderr)
+        json.dumps(pages, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(
+        f"OK: {len(pages)} page(s) -> {args.out_md}\n"
+        f"    page array -> {out_pages_json}\n"
+        f"    {n_images} photo crop(s) -> {images_dir}/",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

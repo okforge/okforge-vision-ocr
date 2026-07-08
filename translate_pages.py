@@ -80,8 +80,10 @@ def call_model(client: OpenAI, prompt: str, page_num: int) -> str:
             raise RuntimeError("empty completion content")
         except Exception as exc:  # noqa: BLE001 — retry any request failure
             last_exc = exc
-            print(f"  page {page_num} attempt {attempt}/{MAX_ATTEMPTS} "
-                  f"failed: {exc}", file=sys.stderr)
+            print(
+                f"  page {page_num} attempt {attempt}/{MAX_ATTEMPTS} failed: {exc}",
+                file=sys.stderr,
+            )
             if attempt < MAX_ATTEMPTS:
                 time.sleep(RETRY_WAIT_S * attempt)
     raise RuntimeError(
@@ -98,21 +100,26 @@ def translate_page(client: OpenAI, page: dict, src: str, dst: str) -> dict:
     if not re.search(r"[A-Za-zÀ-ÿ]{3,}", stripped):
         return dict(page)
     out = call_model(
-        client, PROMPT.format(src=src, dst=dst, content=content), page["page"])
+        client, PROMPT.format(src=src, dst=dst, content=content), page["page"]
+    )
     # Guardrail: every image reference must survive translation verbatim.
     want = IMAGE_REF_RE.findall(content)
     got = set(IMAGE_REF_RE.findall(out))
     missing = [r for r in want if r not in got]
     if missing:
-        print(f"  page {page['page']}: {len(missing)} image ref(s) lost in "
-              f"translation; re-appending", file=sys.stderr)
+        print(
+            f"  page {page['page']}: {len(missing)} image ref(s) lost in "
+            f"translation; re-appending",
+            file=sys.stderr,
+        )
         out += "\n\n" + "\n\n".join(missing)
     return {**page, "content": out}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("in_pages_json", type=Path)
     parser.add_argument("out_md", type=Path)
     parser.add_argument("--to", dest="dst", default="English")
@@ -131,11 +138,16 @@ def main() -> None:
     args.out_md.parent.mkdir(parents=True, exist_ok=True)
     args.out_md.write_text(
         "\n\n".join(p["content"] for p in out_pages if p["content"]) + "\n",
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     out_pages_json.write_text(
-        json.dumps(out_pages, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"OK: {len(out_pages)} page(s) -> {args.out_md}\n"
-          f"    page array -> {out_pages_json}", file=sys.stderr)
+        json.dumps(out_pages, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(
+        f"OK: {len(out_pages)} page(s) -> {args.out_md}\n"
+        f"    page array -> {out_pages_json}",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":
