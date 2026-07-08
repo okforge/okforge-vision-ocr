@@ -1,8 +1,12 @@
-# qwen-page-ocr
+# okforge-vision-ocr
 
 OCR a scanned PDF **and extract its photographs** with a single
-vision-LLM call per page, against any OpenAI-compatible endpoint serving a
-Qwen-VL-family model (tested with Qwen3.6-27B-MTP on llama.cpp).
+vision-LLM call per page. Works against any OpenAI-compatible endpoint
+serving a vision-language model — built and tuned against a
+locally-hosted **Qwen3.6-27B-MTP** (via llama.cpp), because that's what
+runs well on the author's own hardware (RTX 5090, RTX 6000 Pro
+Blackwell). A couple of behaviors described below are genuinely
+Qwen-VL-family specific, called out where they apply.
 
 For each page it:
 
@@ -17,10 +21,10 @@ For each page it:
    the Markdown at each photo's position in the reading order.
 
 ```bash
-python qwen_page_ocr.py scanned.pdf out.md              # whole document
-python qwen_page_ocr.py scanned.pdf out.md --pages 16   # one page
-python qwen_page_ocr.py scanned.pdf out.md --pages 5-12 # range
-python qwen_page_ocr.py scanned.pdf out.md --figures    # also extract drawings
+python okforge_vision_ocr.py scanned.pdf out.md              # whole document
+python okforge_vision_ocr.py scanned.pdf out.md --pages 16   # one page
+python okforge_vision_ocr.py scanned.pdf out.md --pages 5-12 # range
+python okforge_vision_ocr.py scanned.pdf out.md --figures    # also extract drawings
 ```
 
 By default only real photographs are extracted. `--figures` widens the
@@ -33,7 +37,10 @@ don't want.
 
 Output: `out.md` (images referenced relatively from `out_images/`), plus
 `out.pages.json` — `[{"page": N, "content": str, "images": [{"path": str}]}]`
-— so downstream tooling can attach real page numbers to every chunk.
+— so downstream tooling can attach real page numbers to every chunk. This
+is the same contract [okforge](https://github.com/okforge/okforge) reads
+directly for real `(p. N)` citations in compiled summaries — this tool is
+okforge's companion pre-conversion step for scans and photo catalogs.
 
 ## Difficult tables (`--think --tables`)
 
@@ -48,17 +55,19 @@ mimicking the printed grid. Numbers, units, and footnote markers are
 preserved exactly.
 
 ```bash
-python qwen_page_ocr.py scanned.pdf out.md --pages 68 --think --tables
+python okforge_vision_ocr.py scanned.pdf out.md --pages 68 --think --tables
 ```
 
 Reasoning is deliberately OFF otherwise: without `enable_thinking:
-false` per request, Qwen3-family models burn the whole token budget on
-reasoning and return empty content. `--prompt-extra "…"` appends
-one-off instructions for a stubborn page.
+false` per request, **Qwen3-family models** burn the whole token budget on
+reasoning and return empty content. This flag is sent on every request
+regardless of model — harmless with servers that ignore unrecognized
+`extra_body` keys, meaningful specifically for Qwen3 chat templates.
+`--prompt-extra "…"` appends one-off instructions for a stubborn page.
 
-## The coordinate calibration trick
+## The coordinate calibration trick (Qwen-VL-family specific)
 
-Qwen-VL grounding responses through llama.cpp return bounding boxes
+**Qwen-VL** grounding responses through llama.cpp return bounding boxes
 **normalized to 0–1000 of the image dimensions**, regardless of input
 resolution — measured identical at 640/1206/2513 px input widths. If your
 boxes look "off by ~1.6×", that's just `height/1000`. This tool scales by
@@ -66,13 +75,19 @@ boxes look "off by ~1.6×", that's just `height/1000`. This tool scales by
 exceeds 1000, and accepts both `bbox` and `bbox_2d` keys (the model
 alternates).
 
-Two more hard-won details baked in:
+This is a **Qwen-VL-family convention, not a universal one** — other
+vision models return boxes as 0–1 normalized floats, raw pixel
+coordinates, or point-based formats. If you point this tool at a
+non-Qwen model, check your first few crops; the box math may need
+adjusting for your model's actual grounding output format.
 
-- `chat_template_kwargs: {"enable_thinking": false}` is mandatory on
-  thinking-capable Qwen builds — otherwise reasoning consumes the whole
-  token budget and `content` comes back empty.
-- Pages are processed strictly sequentially (one in-flight call), which
-  single-slot llama.cpp servers need.
+One more Qwen-specific detail baked in: `chat_template_kwargs:
+{"enable_thinking": false}` is mandatory on thinking-capable Qwen3
+builds — otherwise reasoning consumes the whole token budget and
+`content` comes back empty (see above).
+
+Model-agnostic detail: pages are processed strictly sequentially (one
+in-flight call), which single-slot LLM servers of any kind need.
 
 ## Translating the output (`translate_pages.py`)
 
@@ -97,7 +112,7 @@ Environment (or a `.env` in the working directory):
 ```
 OPENAI_API_BASE=http://your-host:8080/v1
 LLM_API_KEY=no-key
-QWEN_OCR_MODEL=Qwen3.6-27B-MTP   # optional override
+OKFORGE_VISION_MODEL=Qwen3.6-27B-MTP   # optional override — any vision-capable model your endpoint serves
 ```
 
 Install: `pip install -r requirements.txt` (pymupdf, pillow, openai,
@@ -106,8 +121,14 @@ python-dotenv).
 ## Provenance
 
 Built 2026-07-03 to ingest a 60-page pure-scan brochure (zero text layer)
-into an [okforge](https://github.com/designcomputer/okforge) knowledge base
-(a hard fork of [VectifyAI/OpenKB](https://github.com/VectifyAI/OpenKB))
-after several docling-serve pipelines failed on it in different ways. The
-canonical working copy lives in that machine's okforge-tooling repo; this
-repo is the standalone publication of the same script.
+after several docling-based pipelines failed on it in different ways —
+one combined OCR + image-extraction call per page turned out simpler and
+more reliable than a general-purpose document-conversion service for
+this kind of material.
+
+The canonical working copy lives inside a private tooling repo (under
+the filename `qwen_page_ocr.py`, wired into that repo's own pipeline and
+kept there under its original name for internal continuity); this repo
+is a renamed, cleaned-up standalone publication of the same script for
+anyone who wants the tool without the rest of that pipeline. Changes are
+ported across deliberately, not auto-synced.

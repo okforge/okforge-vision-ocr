@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Translate a qwen_page_ocr.py output into another
+"""Translate an okforge_vision_ocr.py output into another
 language, page by page, preserving the .md + .pages.json contract.
 
 Reads <in>.pages.json (the per-page source of truth), makes one text-only
@@ -12,9 +12,9 @@ Usage:
     translate_pages.py in.pages.json out.md [--to English] [--from Catalan]
 
 Environment (or .env in cwd / ~/.config/openkb/.env):
-    OPENAI_API_BASE   default http://sriaitoo:8080/v1
-    LLM_API_KEY       default no-key
-    QWEN_OCR_MODEL    default Qwen3.6-27B-MTP
+    OPENAI_API_BASE      default http://localhost:8080/v1
+    LLM_API_KEY          default no-key
+    OKFORGE_VISION_MODEL default Qwen3.6-27B-MTP
 """
 
 import argparse
@@ -28,7 +28,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-MODEL = os.environ.get("QWEN_OCR_MODEL", "Qwen3.6-27B-MTP")
+MODEL = os.environ.get("OKFORGE_VISION_MODEL", "Qwen3.6-27B-MTP")
 MAX_TOKENS = 4096
 MAX_ATTEMPTS = 3
 RETRY_WAIT_S = 10
@@ -57,7 +57,7 @@ Markdown to translate:
 def load_client() -> OpenAI:
     load_dotenv(Path.cwd() / ".env", override=False)
     load_dotenv(Path.home() / ".config" / "openkb" / ".env", override=False)
-    base_url = os.environ.get("OPENAI_API_BASE", "http://sriaitoo:8080/v1")
+    base_url = os.environ.get("OPENAI_API_BASE", "http://localhost:8080/v1")
     api_key = os.environ.get("LLM_API_KEY", "no-key")
     print(f"LLM endpoint: {base_url}", file=sys.stderr)
     return OpenAI(api_key=api_key, base_url=base_url)

@@ -1,44 +1,42 @@
 #!/usr/bin/env python3
-"""Direct-Qwen pre-conversion: scanned PDF -> Markdown + images + page JSON.
+"""Page-by-page VLM OCR + photo extraction: scanned PDF -> Markdown + images + page JSON.
 
-The pre-conversion tool, for documents
-where real OCR *and* real image extraction both matter (e.g.
-SeminoleWarHeritageTrail's pure-scan brochure). Bypasses docling-serve
-entirely — its queue-hang bug, qwen-vl's pictures-never-detected gap, and
-granite_docling's unreliable boxes (see SeminoleWarHeritageTrail/README.md)
-— and instead makes one chat-completions call per page to the same
-Qwen3.6-27B-MTP endpoint every other LLM call in this project uses, asking
-for the page's markdown transcription and photo bounding boxes together.
+For documents where real OCR *and* real image extraction both matter.
+Works against any OpenAI-compatible endpoint serving a vision-language
+model; built and tuned against a locally-hosted Qwen3.6-27B-MTP (runs
+well on RTX 5090 / RTX 6000 Pro Blackwell hardware). Makes one
+chat-completions call per page, asking for the page's markdown
+transcription and photo bounding boxes together — one pass instead of
+a separate detection call.
 
-Coordinate calibration (measured, 2026-07-03): the model returns bounding
-boxes normalized to 0-1000 of the sent image's dimensions, regardless of
-input resolution — verified against ground-truth crops at 640/1206/2513 px
-input widths, identical numbers each time. The "~1.6x scale mystery" from
-earlier testing was just height/1000. So: pixel = coord * dim / 1000. As a
-fallback, a box with any coordinate > 1000 is treated as raw pixels of the
-sent image.
+Coordinate calibration (measured, 2026-07-03, against Qwen-VL-family
+grounding output): the model returns bounding boxes normalized to
+0-1000 of the sent image's dimensions, regardless of input resolution —
+verified against ground-truth crops at 640/1206/2513 px input widths,
+identical numbers each time. The "~1.6x scale mystery" from earlier
+testing was just height/1000. So: pixel = coord * dim / 1000. As a
+fallback, a box with any coordinate > 1000 is treated as raw pixels of
+the sent image. This is a Qwen-VL-family convention, not a universal
+one — verify against your own model if you swap it in.
 
 Output contract:
     <out_md>            assembled markdown, pages in order, with relative
-                        ![](<stem>_images/pN_imgM.jpg) refs inline — the
-                        same relative-link convention openkb's .md path
-                        already picks up via copy_relative_images().
+                        ![](<stem>_images/pN_imgM.jpg) refs inline.
     <out_md>.pages.json [{"page": N, "content": str, "images":
-                        [{"path": str}]}] — the shape
-                        _normalize_page_content in openkb/indexer.py
-                        accepts.
+                        [{"path": str}]}] — a page-cited source okforge's
+                        `add` command reads directly for real (p. N)
+                        citations in compiled summaries.
     <out_md stem>_images/   cropped photos, JPEG.
 
-This produces the artifacts, nothing else — it
-does not run `openkb add`.
+This produces the artifacts only — it does not ingest them anywhere.
 
 Usage:
-    qwen_page_ocr.py raw/doc.pdf raw/doc.md              # whole document
-    qwen_page_ocr.py raw/doc.pdf raw/doc.md --pages 16   # single page
-    qwen_page_ocr.py raw/doc.pdf raw/doc.md --pages 5-12 # range
+    okforge_vision_ocr.py raw/doc.pdf raw/doc.md              # whole document
+    okforge_vision_ocr.py raw/doc.pdf raw/doc.md --pages 16   # single page
+    okforge_vision_ocr.py raw/doc.pdf raw/doc.md --pages 5-12 # range
 
 Reads OPENAI_API_BASE and LLM_API_KEY from .env in the current directory
-or ~/.config/openkb/.env; defaults to sriaitoo:8080.
+or ~/.config/openkb/.env; defaults to localhost:8080.
 """
 from __future__ import annotations
 
@@ -57,15 +55,15 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from PIL import Image, ImageStat
 
-MODEL = os.environ.get("QWEN_OCR_MODEL", "Qwen3.6-27B-MTP")
+MODEL = os.environ.get("OKFORGE_VISION_MODEL", "Qwen3.6-27B-MTP")
 RENDER_DPI = 300          # for pages that aren't a single full-page scan
 JPEG_QUALITY = 90         # both what's sent to the model and what's saved
 MAX_TOKENS = 4096         # transcript + JSON; a dense brochure page fits
 MAX_TOKENS_THINK = 16384   # --think: reasoning shares the budget, so grow it
-MAX_ATTEMPTS = 3          # same 3-retry pattern as indexer.index_long_document
+MAX_ATTEMPTS = 3          # retries with linear backoff on transient failures
 RETRY_WAIT_S = 10
 MIN_CROP_PX = 40          # reject slivers
-MIN_CROP_STDDEV = 10.0    # reject near-uniform crops (granite's black-box mode)
+MIN_CROP_STDDEV = 10.0    # reject near-uniform crops (blank/solid-color crops)
 
 PHOTO_MARKER_RE = re.compile(r"^[ \t>*-]*<<<PHOTO\s*(\d+)>>>[ \t]*$", re.MULTILINE)
 JSON_FENCE_RE = re.compile(r"```json\s*(.*?)```", re.DOTALL)
@@ -145,7 +143,7 @@ FIGURE_SCOPE = (
 def load_client() -> OpenAI:
     load_dotenv(Path.cwd() / ".env", override=False)
     load_dotenv(Path.home() / ".config" / "openkb" / ".env", override=False)
-    base_url = os.environ.get("OPENAI_API_BASE", "http://sriaitoo:8080/v1")
+    base_url = os.environ.get("OPENAI_API_BASE", "http://localhost:8080/v1")
     api_key = os.environ.get("LLM_API_KEY", "no-key")
     print(f"LLM endpoint: {base_url}", file=sys.stderr)
     return OpenAI(api_key=api_key, base_url=base_url)
@@ -251,7 +249,7 @@ def box_to_pixels(box: list, size: tuple[int, int]) -> tuple[int, int, int, int]
 
 
 def crop_ok(crop: Image.Image) -> bool:
-    """Reject near-uniform crops — granite_docling's solid-black failure mode."""
+    """Reject near-uniform crops (a common OCR-crop failure mode: solid black/blank)."""
     stat = ImageStat.Stat(crop.convert("L"))
     return stat.stddev[0] >= MIN_CROP_STDDEV
 
