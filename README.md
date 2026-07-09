@@ -45,6 +45,11 @@ figures are drawn rather than photographed; the strict default exists for
 documents where the non-photo graphics are decorative page furniture you
 don't want.
 
+New to this or to okforge? [**GETTING_STARTED.md**](https://github.com/okforge/okforge/blob/main/GETTING_STARTED.md)
+in the main okforge repo is a full beginner walkthrough covering venv
+setup, installing both tools, local vs. cloud (OpenRouter) model setup,
+and a complete scan-to-wiki example.
+
 Output: `out.md` (images referenced relatively from `out_images/`), plus
 `out.pages.json` — `[{"page": N, "content": str, "images": [{"path": str}]}]`
 — so downstream tooling can attach real page numbers to every chunk. This
