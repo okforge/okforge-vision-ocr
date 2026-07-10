@@ -198,8 +198,14 @@ def call_model(
                 # Thinking is off by default — reasoning burns the whole
                 # token budget and content comes back empty. --think turns
                 # it on (with a bigger budget) for pages that need
-                # structural reasoning, e.g. complex tables.
-                extra_body={"chat_template_kwargs": {"enable_thinking": think}},
+                # structural reasoning, e.g. complex tables. Every serving
+                # stack spells this differently, so send both dialects:
+                # chat_template_kwargs for llama.cpp/vLLM, reasoning for
+                # hosted routers (OpenRouter). Each side ignores the other's.
+                extra_body={
+                    "chat_template_kwargs": {"enable_thinking": think},
+                    "reasoning": {"enabled": think},
+                },
             )
             text = resp.choices[0].message.content or ""
             # Some server configs inline the reasoning; never let it

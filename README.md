@@ -101,16 +101,15 @@ One more Qwen-specific detail baked in: `chat_template_kwargs:
 builds — otherwise reasoning consumes the whole token budget and
 `content` comes back empty (see above).
 
-**Hosted-router caveat (OpenRouter etc.):** `chat_template_kwargs` is a
-llama.cpp/vLLM server option — hosted routers like OpenRouter silently
-ignore it, so a thinking-capable Qwen3 model reasons on every page
-anyway. There the reasoning usually arrives in a separate response
-field (so transcriptions still come through), but it shares the 4096
+Because every serving stack spells "don't reason" differently, both
+tools send **both** dialects on every request: `chat_template_kwargs:
+{"enable_thinking": …}` (llama.cpp/vLLM) and `reasoning:
+{"enabled": …}` (hosted routers like OpenRouter). Each side ignores the
+other's key — verified against llama.cpp and OpenRouter with
+`qwen3.6-27b`. Without the router dialect, a thinking-capable Qwen3
+model on OpenRouter reasons on every page into the shared 4096
 `max_tokens` budget: dense pages can truncate, and every page pays
-reasoning cost and latency. OpenRouter's own dialect is
-`{"reasoning": {"enabled": false}}`, which this tool does not send yet
-— when OCR'ing through a hosted router, prefer a non-thinking
-vision model, or expect the overhead.
+reasoning cost and latency.
 
 Model-agnostic detail: pages are processed strictly sequentially (one
 in-flight call), which single-slot LLM servers of any kind need.
@@ -144,8 +143,9 @@ OKFORGE_VISION_MODEL=Qwen3.6-27B-MTP   # optional override — any vision-capabl
 Any OpenAI-compatible hosted service works the same way — e.g.
 OpenRouter is `OPENAI_API_BASE=https://openrouter.ai/api/v1` with your
 `sk-or-...` key and a vision-capable model slug like
-`OKFORGE_VISION_MODEL=qwen/qwen3.6-27b` (but read the hosted-router
-caveat above about thinking models).
+`OKFORGE_VISION_MODEL=qwen/qwen3.6-27b`. Thinking suppression works
+there too — both tools send OpenRouter's `reasoning` dialect alongside
+the llama.cpp one (see above).
 
 From a source checkout, without installing the package: `pip install -r
 requirements.txt` (pymupdf, pillow, openai, python-dotenv), then run

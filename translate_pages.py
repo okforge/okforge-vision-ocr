@@ -72,7 +72,12 @@ def call_model(client: OpenAI, prompt: str, page_num: int) -> str:
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=MAX_TOKENS,
                 temperature=0.2,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                # Both thinking-off dialects: chat_template_kwargs for
+                # llama.cpp/vLLM, reasoning for hosted routers (OpenRouter).
+                extra_body={
+                    "chat_template_kwargs": {"enable_thinking": False},
+                    "reasoning": {"enabled": False},
+                },
             )
             text = resp.choices[0].message.content or ""
             if text.strip():
