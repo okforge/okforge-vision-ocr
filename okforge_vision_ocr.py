@@ -249,7 +249,9 @@ def parse_response(text: str) -> tuple[str, list[dict]]:
     return transcript.strip(), boxes
 
 
-def box_to_pixels(box: list, size: tuple[int, int]) -> tuple[int, int, int, int] | None:
+def box_to_pixels(
+    box: list, size: tuple[int, int], pad_pct: float = 0.0
+) -> tuple[int, int, int, int] | None:
     W, H = size
     try:
         x1, y1, x2, y2 = (float(v) for v in box)
@@ -258,6 +260,14 @@ def box_to_pixels(box: list, size: tuple[int, int]) -> tuple[int, int, int, int]
     if max(x1, y1, x2, y2) <= 1000:  # calibrated: 0-1000 normalized
         x1, x2 = x1 * W / 1000, x2 * W / 1000
         y1, y2 = y1 * H / 1000, y2 * H / 1000
+    if pad_pct > 0:
+        # Padding is a deterministic post-step, NOT a prompt matter: the
+        # model emits tight boxes by training and barely loosens them on
+        # request. Each side grows by pad_pct% of the box's own dimension.
+        pad_x = (x2 - x1) * pad_pct / 100.0
+        pad_y = (y2 - y1) * pad_pct / 100.0
+        x1, x2 = x1 - pad_x, x2 + pad_x
+        y1, y2 = y1 - pad_y, y2 + pad_y
     px = (int(max(0, x1)), int(max(0, y1)), int(min(W, x2)), int(min(H, y2)))
     if px[2] - px[0] < MIN_CROP_PX or px[3] - px[1] < MIN_CROP_PX:
         return None
@@ -278,6 +288,7 @@ def process_page(
     images_dir_name: str,
     prompt: str,
     think: bool = False,
+    crop_pad: float = 0.0,
 ) -> dict:
     """One page: image -> one LLM call -> transcript + verified photo crops.
 
@@ -302,7 +313,9 @@ def process_page(
             pid = int(pid)
         except (TypeError, ValueError):
             pid = i
-        px = box_to_pixels(b.get("bbox") or b.get("bbox_2d") or [], img.size)
+        px = box_to_pixels(
+            b.get("bbox") or b.get("bbox_2d") or [], img.size, pad_pct=crop_pad
+        )
         if px is None:
             print(
                 f"  page {page_num} photo {pid}: unusable bbox "
@@ -403,7 +416,34 @@ def main() -> None:
         metavar="TEXT",
         help="Free-text instructions appended to the prompt",
     )
+    parser.add_argument(
+        "--crop-pad",
+        type=float,
+        default=None,
+        metavar="PCT",
+        help="Expand each detected image box by PCT%% of its own "
+        "width/height on every side before cropping, clamped to the "
+        "page (default 0 = tight crops; falls back to the "
+        "OKFORGE_VISION_CROP_PAD env var)",
+    )
     args = parser.parse_args()
+    # .env must be in os.environ before the OKFORGE_VISION_CROP_PAD
+    # fallback below reads it (load_client() loads these too late, and a
+    # KB's own .env — cwd when the webui runs us — is the natural home
+    # for a per-KB pad default).
+    load_dotenv(Path.cwd() / ".env", override=False)
+    load_dotenv(Path.home() / ".config" / "openkb" / ".env", override=False)
+    crop_pad = args.crop_pad
+    if crop_pad is None:
+        raw_pad = os.environ.get("OKFORGE_VISION_CROP_PAD", "").strip()
+        try:
+            crop_pad = float(raw_pad) if raw_pad else 0.0
+        except ValueError:
+            raise SystemExit(
+                f"OKFORGE_VISION_CROP_PAD must be a number, got: {raw_pad!r}"
+            )
+    if not 0 <= crop_pad <= 50:
+        raise SystemExit(f"--crop-pad must be 0-50 (percent), got: {crop_pad}")
     prompt = PROMPT.replace("@@SCOPE@@", FIGURE_SCOPE if args.figures else PHOTO_SCOPE)
     if args.tables:
         prompt += TABLE_ADDENDUM
@@ -423,7 +463,8 @@ def main() -> None:
     n_images = 0
     for page_num in page_nums:
         result = process_page(
-            client, doc, page_num, images_dir, images_dir_name, prompt, think=args.think
+            client, doc, page_num, images_dir, images_dir_name, prompt,
+            think=args.think, crop_pad=crop_pad,
         )
         pages.append(result)
         n_images += len(result["images"])

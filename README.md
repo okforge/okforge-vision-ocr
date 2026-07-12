@@ -80,6 +80,21 @@ regardless of model — harmless with servers that ignore unrecognized
 `extra_body` keys, meaningful specifically for Qwen3 chat templates.
 `--prompt-extra "…"` appends one-off instructions for a stubborn page.
 
+## Crop padding (`--crop-pad`)
+
+The model emits tight bounding boxes by training, and prompt hints
+barely loosen them — padding is a deterministic post-step, not a prompt
+matter. `--crop-pad 5` expands every detected box by 5% of its own
+width/height on each side before cropping, clamped to the page edges
+(range 0–50; default 0 keeps the historical tight crops). Set it
+per-KB instead via `OKFORGE_VISION_CROP_PAD` in the `.env` the tool
+already reads (cwd, then `~/.config/openkb/.env`); the flag wins over
+the env var.
+
+```bash
+okforge-vision-ocr scanned.pdf out.md --pages 2 --crop-pad 5
+```
+
 ## The coordinate calibration trick (Qwen-VL-family specific)
 
 **Qwen-VL** grounding responses through llama.cpp return bounding boxes
