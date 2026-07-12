@@ -463,8 +463,14 @@ def main() -> None:
     n_images = 0
     for page_num in page_nums:
         result = process_page(
-            client, doc, page_num, images_dir, images_dir_name, prompt,
-            think=args.think, crop_pad=crop_pad,
+            client,
+            doc,
+            page_num,
+            images_dir,
+            images_dir_name,
+            prompt,
+            think=args.think,
+            crop_pad=crop_pad,
         )
         pages.append(result)
         n_images += len(result["images"])
