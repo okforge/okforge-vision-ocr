@@ -91,6 +91,12 @@ per-KB instead via `OKFORGE_VISION_CROP_PAD` in the `.env` the tool
 already reads (cwd, then `~/.config/openkb/.env`); the flag wins over
 the env var.
 
+When a figure sits inside printed text, padding necessarily pulls
+fragments of the surrounding words into the crop. That trade is
+deliberate and worth it: stray text at a crop's edge costs nothing,
+while a clipped figure or half a caption is lost content. Tune the
+percentage for "never clips", not for "no text visible".
+
 ```bash
 okforge-vision-ocr scanned.pdf out.md --pages 2 --crop-pad 5
 ```
