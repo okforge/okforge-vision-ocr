@@ -187,3 +187,7 @@ kept there under its original name for internal continuity); this repo
 is a renamed, cleaned-up standalone publication of the same script for
 anyone who wants the tool without the rest of that pipeline. Changes are
 ported across deliberately, not auto-synced.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
